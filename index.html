@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Cartas Locas</title>
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<style>
+:root{--bg:#f4f1ea;--fg:#222;--pan:#fff;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#1c1d22;--fg:#eee;--pan:#2a2c33}}
+:root[data-theme="dark"]{--bg:#1c1d22;--fg:#eee;--pan:#2a2c33}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,sans-serif;display:flex;flex-direction:column;overflow:hidden}
+#app{flex:1;display:flex;flex-direction:column;min-height:0}
+.c{width:56px;height:84px;border-radius:9px;border:3px solid #fff;color:#fff;font-weight:800;font-size:24px;display:flex;align-items:center;justify-content:center;flex:none;box-shadow:0 2px 5px #0005}
+.r{background:#e53935}.y{background:#f9c80e;color:#333}.g{background:#43a047}.b{background:#1e88e5}
+.w{background:linear-gradient(135deg,#e53935 25%,#f9c80e 25% 50%,#43a047 50% 75%,#1e88e5 75%);text-shadow:0 1px 3px #000}
+.back{background:#222;color:#f9c80e;font-size:14px}
+.opp{display:flex;gap:8px;justify-content:center;padding:10px;flex-wrap:wrap}
+.o{background:var(--pan);border-radius:12px;padding:6px 12px;font-size:14px;text-align:center;border:2px solid transparent}
+.o.t{border-color:#43a047;font-weight:700}
+.mid{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px}
+.row{display:flex;gap:18px;align-items:center}
+.dot{width:26px;height:26px;border-radius:50%;border:3px solid #fff;box-shadow:0 1px 4px #0006}
+#msg{min-height:40px;text-align:center;padding:0 16px;font-size:15px}
+.hand{display:flex;gap:6px;overflow-x:auto;padding:22px 12px 14px;background:var(--pan);transition:opacity .2s}
+.hand.off{opacity:.4;pointer-events:none}
+.hand .c.bad{animation:shk .3s}
+@keyframes shk{25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
+button{font:inherit;font-weight:700;border:0;border-radius:12px;padding:12px 22px;background:#1e88e5;color:#fff}
+button:disabled{opacity:.4}
+button.ghost{background:transparent;color:var(--fg);border:2px solid currentColor}
+.ov{position:fixed;inset:0;background:#000b;display:flex;flex-direction:column;gap:14px;align-items:center;justify-content:center;color:#fff;text-align:center;padding:20px}
+.pk{display:flex;gap:12px}.pk .dot{width:56px;height:56px}
+input{font:inherit;padding:10px 14px;border-radius:10px;border:0;text-align:center;width:220px}
+.code{font-size:40px;letter-spacing:10px;font-weight:800;background:#fff2;padding:8px 20px;border-radius:12px}
+.plist{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:6px}
+.plist li{background:#fff2;padding:8px 16px;border-radius:10px}
+.menu{display:flex;flex-direction:column;gap:10px;flex:1;color:var(--fg);align-items:center;justify-content:center;padding:20px;text-align:center}
+</style></head><body><div id="app">Cargando…</div>
+<script>
+const $=document.getElementById('app'),CO=['r','y','g','b'];
+let S=null,pend=null,MODE=null;
+let peer=null,conns=[],isHost=false,players=[],myId=null,myConn=null,room=null;
+let myName=(()=>{try{return localStorage.getItem('cl_name')||''}catch(e){return ''}})();
+const sh=a=>{for(let i=a.length-1;i>0;i--){const j=Math.random()*(i+1)|0;[a[i],a[j]]=[a[j],a[i]]}return a};
+function mk(){const d=[];CO.forEach(c=>{d.push({c,v:'0'});for(let k=0;k<2;k++){for(let n=1;n<10;n++)d.push({c,v:''+n});['s','r','+2'].forEach(v=>d.push({c,v}))}});for(let k=0;k<4;k++){d.push({c:'w',v:'w'});d.push({c:'w',v:'+4'})}return d}
+const sym=v=>({s:'⊘',r:'⇄',w:'★'}[v]||v);
+const cd=(c,cl='',i='')=>`<div class="c ${c.c} ${cl}" ${i!==''?`onclick="clk(${i})"`:''}>${sym(c.v)}</div>`;
+const okc=(c,top,col)=>c.c=='w'||c.c==col||c.v==top.v;
+const cn={r:'#e53935',y:'#f9c80e',g:'#43a047',b:'#1e88e5'};
+function shake(el){if(el){el.classList.remove('bad');void el.offsetWidth;el.classList.add('bad')}}
+
+/* ---------- MENU ---------- */
+function menu(){MODE=null;
+$.innerHTML=`<div class="menu"><h1 style="font-size:40px;margin:0">🃏 Cartas Locas</h1>
+<button onclick="soloMenu()">🤖 Un celular, contra bots</button>
+<button onclick="onlineMenu()">🌐 En línea, con la familia</button>
+<p style="max-width:300px;font-size:14px;opacity:.8">Combina color, número o símbolo. Sé el primero en quedarte sin cartas.</p></div>`}
+
+/* ---------- SOLO VS BOTS ---------- */
+function soloMenu(){$.innerHTML=`<div class="menu"><h2>¿Contra cuántos bots?</h2><div style="display:flex;gap:10px">${[1,2,3].map(n=>`<button onclick="start(${n})">${n}</button>`).join('')}</div><button class="ghost" onclick="menu()">← Volver</button></div>`}
+function start(n){MODE='solo';const d=sh(mk());S={d,p:[],h:[],cur:0,dir:1,n:n+1,drew:false,over:false,msg:'Tu turno'};for(let i=0;i<=n;i++)S.h.push(d.splice(0,7));let t;do{t=S.d.pop();if(t.c=='w'){S.d.unshift(t);t=null}}while(!t);S.p=[t];S.col=t.c;render()}
+function nx(f,s=1){return (((f+S.dir*s)%S.n)+S.n)%S.n}
+function dr(p,k){for(let i=0;i<k;i++){if(!S.d.length){const t=S.p.pop();S.d=sh(S.p);S.p=[t]}if(S.d.length)S.h[p].push(S.d.pop())}}
+function nm(p){return p?'Bot '+p:'Tú'}
+function render(){const t=S.p[S.p.length-1],me=S.cur==0&&!S.over;
+$.innerHTML=`<div class="opp">${S.h.slice(1).map((h,i)=>`<div class="o ${S.cur==i+1?'t':''}">${nm(i+1)}<br>🂠 ${h.length}</div>`).join('')}</div>
+<div class="mid"><div class="row"><div onclick="deck()">${cd({c:'back',v:'📥'},'back')}</div>${cd(t)}<div class="dot" style="background:${cn[S.col]}"></div></div><div id="msg">${S.msg}</div></div>
+<div class="hand ${me?'':'off'}" id="hand">${S.h[0].map((c,i)=>cd(c,'',i)).join('')}</div>
+${pend!==null?`<div class="ov"><h2>Elige un color</h2><div class="pk">${CO.map(c=>`<div class="dot ${c}" onclick="pick('${c}')"></div>`).join('')}</div></div>`:''}
+${S.over?`<div class="ov"><h1>${S.h[0].length?'😢 Ganó '+nm(S.h.findIndex(h=>!h.length)):'🎉 ¡Ganaste!'}</h1><button onclick="menu()">Menú</button></div>`:''}`}
+function play(p,i,col){const c=S.h[p].splice(i,1)[0];S.p.push(c);S.col=col||c.c;let sk=false,m=nm(p)+' jugó';const v=nx(p);
+if(c.v=='s'){sk=true;m+=` — ${nm(v)} pierde turno`}
+if(c.v=='r'){S.dir*=-1;m+=' — cambio de sentido';if(S.n==2)sk=true}
+if(c.v=='+2'){dr(v,2);sk=true;m+=` — ${nm(v)} roba 2`}
+if(c.v=='+4'){dr(v,4);sk=true;m+=` — ${nm(v)} roba 4`}
+if(!S.h[p].length){S.over=true;return render()}
+S.cur=nx(p,sk?2:1);S.drew=false;S.msg=m+(S.cur==0?'. Tu turno':'');render();aft()}
+function pass(p){S.cur=nx(p);S.drew=false;S.msg=nm(p)+' pasó'+(S.cur==0?'. Tu turno':'');render();aft()}
+function aft(){if(!S.over&&S.cur!=0)setTimeout(bot,1000)}
+function bcol(h){const n={r:0,y:0,g:0,b:0};h.forEach(c=>{if(n[c.c]!==undefined)n[c.c]++});return CO.sort((a,b)=>n[b]-n[a])[0]}
+function bot(){const p=S.cur,h=S.h[p];const ix=h.map((c,i)=>i).filter(i=>okc(h[i],S.p[S.p.length-1],S.col));
+if(ix.length){const nw=ix.filter(i=>h[i].c!='w'),i=nw.length?nw[Math.random()*nw.length|0]:ix[0];play(p,i,h[i].c=='w'?bcol(h.filter((_,j)=>j!=i)):null)}
+else{dr(p,1);const l=h.length-1;if(okc(h[l],S.p[S.p.length-1],S.col))play(p,l,h[l].c=='w'?bcol(h.slice(0,l)):null);else pass(p)}}
+function clk(i){
+ if(MODE=='online')return oclk(i);
+ if(S.cur||S.over||pend!==null)return;const c=S.h[0][i],el=document.querySelectorAll('#hand .c')[i];
+ if(!okc(c,S.p[S.p.length-1],S.col)||(S.drew&&i!=S.h[0].length-1)){shake(el);S.msg='Esa no sirve';document.getElementById('msg').textContent=S.msg;return}
+ if(c.c=='w'){pend=i;render()}else play(0,i)}
+function pick(c){if(MODE=='online')return opick(c);const i=pend;pend=null;play(0,i,c)}
+function deck(){if(MODE=='online')return odeck();if(S.cur||S.over)return;if(S.drew)return pass(0);dr(0,1);S.drew=true;const l=S.h[0][S.h[0].length-1];if(okc(l,S.p[S.p.length-1],S.col)){S.msg='Puedes jugar esa carta o tocar el mazo para pasar'}else{S.msg='No sirve, pasas turno';render();setTimeout(()=>pass(0),900);return}render()}
+
+/* ---------- ONLINE (PeerJS, sin cuentas) ---------- */
+function genCode(){return Array.from({length:4},()=>'ABCDEFGHJKLMNPQRSTUVWXYZ'[Math.random()*24|0]).join('')}
+function saveName(n){myName=n;try{localStorage.setItem('cl_name',n)}catch(e){}}
+function onlineMenu(){MODE='online';nameScreen()}
+function nameScreen(){$.innerHTML=`<div class="menu"><h2>¿Cómo te llamas?</h2><input id="nm" value="${myName}" placeholder="Tu nombre" maxlength="14"><div style="display:flex;gap:10px"><button onclick="goCreate()">Crear sala</button><button onclick="goJoin()">Unirse a sala</button></div><button class="ghost" onclick="menu()">← Volver</button></div>`}
+function readName(){const v=document.getElementById('nm').value.trim()||'Jugador';saveName(v);return v}
+function goCreate(){const n=readName();const code=genCode();
+ $.innerHTML=`<div class="menu"><h2>Conectando…</h2></div>`;
+ peer=new Peer(code);
+ peer.on('open',id=>{isHost=true;room=id;myId=id;players=[{id,name:n}];conns=[];renderLobbyP()});
+ peer.on('connection',conn=>{conn.on('open',()=>{conns.push(conn);
+   conn.on('data',data=>handleHostMsg(conn,data));
+   conn.on('close',()=>{conns=conns.filter(c=>c!=conn);players=players.filter(p=>p.id!=conn.peer);if(S)broadcastState();else renderLobbyP()});
+ })});
+ peer.on('error',e=>{if(e.type==='unavailable-id'){goCreate()}else{$.innerHTML=`<div class="menu"><h2>Error de conexión</h2><p>${e.type}</p><button class="ghost" onclick="menu()">← Volver</button></div>`}})}
+function handleHostMsg(conn,data){
+ if(data.type=='join'){if(!players.find(p=>p.id==conn.peer))players.push({id:conn.peer,name:data.name});
+  if(S)conn.send({type:'state',state:S,players});else{renderLobbyP();conns.forEach(c=>{try{c.send({type:'lobby',players})}catch(e){}})}}
+ if(data.type=='action')applyAction(conn.peer,data)}
+function goJoin(){const n=readName();$.innerHTML=`<div class="menu"><h2>Código de la sala</h2><input id="cd" placeholder="ABCD" maxlength="4" style="text-transform:uppercase;letter-spacing:6px"><button onclick="doJoinP()">Entrar</button><button class="ghost" onclick="nameScreen()">← Volver</button></div>`}
+function doJoinP(){const code=document.getElementById('cd').value.trim().toUpperCase();
+ $.innerHTML=`<div class="menu"><h2>Conectando…</h2></div>`;
+ peer=new Peer();
+ peer.on('open',id=>{myId=id;room=code;isHost=false;const conn=peer.connect(code);myConn=conn;
+  conn.on('open',()=>conn.send({type:'join',name:myName}));
+  conn.on('data',data=>handleClientMsg(data));
+  conn.on('close',()=>{$.innerHTML=`<div class="menu"><h2>Se perdió la conexión</h2><button class="ghost" onclick="menu()">← Volver</button></div>`});
+  conn.on('error',()=>{$.innerHTML=`<div class="menu"><h2>No se encontró esa sala</h2><button class="ghost" onclick="goJoin()">Reintentar</button></div>`})});
+ peer.on('error',e=>{$.innerHTML=`<div class="menu"><h2>No se pudo conectar</h2><p>${e.type}</p><button class="ghost" onclick="menu()">← Volver</button></div>`})}
+function handleClientMsg(data){if(data.type=='lobby'){players=data.players;renderLobbyP()}if(data.type=='state'){S=data.state;players=data.players||players;renderOnlineP()}}
+function renderLobbyP(){$.innerHTML=`<div class="menu"><h3>Sala</h3><div class="code">${room}</div><p>Comparte este código con tu familia</p>
+<ul class="plist">${players.map(p=>`<li>${p.name}${p.id==room?' 👑':''}</li>`).join('')}</ul>
+${isHost?`<button ${players.length<2?'disabled':''} onclick="beginGameP()">Iniciar partida (${players.length})</button>`:`<p>Esperando a que el anfitrión inicie…</p>`}
+<button class="ghost" onclick="leaveRoomP()">Salir</button></div>`}
+function leaveRoomP(){if(peer)peer.destroy();peer=null;conns=[];players=[];S=null;isHost=false;room=null;menu()}
+function beginGameP(){const ids=players.map(p=>p.id);const deck=sh(mk());const hands={};ids.forEach(id=>hands[id]=deck.splice(0,7));
+ let top;do{top=deck.pop();if(top.c=='w'){deck.unshift(top);top=null}}while(!top);
+ S={deck,pile:[top],color:top.c,order:ids,turnIdx:0,dir:1,drewBy:null,winner:null,hands};broadcastState()}
+function broadcastState(){conns.forEach(c=>{try{c.send({type:'state',state:S,players})}catch(e){}});renderOnlineP()}
+function dealTo(id,k){for(let i=0;i<k;i++){if(!S.deck.length){const t=S.pile.pop();S.deck=sh(S.pile);S.pile=[t]}if(S.deck.length)S.hands[id].push(S.deck.pop())}}
+function playCardFor(pid,i,col){const hand=S.hands[pid];const c=hand.splice(i,1)[0];S.pile.push(c);S.color=col||c.c;S.drewBy=null;
+ const n=S.order.length;const dirStep=(s=1)=>(((S.turnIdx+S.dir*s)%n)+n)%n;let skip=false;const nIdx=dirStep(1);
+ if(c.v=='s')skip=true;if(c.v=='r'){S.dir*=-1;if(n==2)skip=true}
+ if(c.v=='+2'){dealTo(S.order[nIdx],2);skip=true}if(c.v=='+4'){dealTo(S.order[nIdx],4);skip=true}
+ if(!hand.length){S.winner=pid;return}S.turnIdx=dirStep(skip?2:1)}
+function drawFor(pid){if(S.drewBy==pid){const n=S.order.length;S.turnIdx=(((S.turnIdx+S.dir)%n)+n)%n;S.drewBy=null;return}dealTo(pid,1);S.drewBy=pid}
+function applyAction(pid,data){if(!S)return;const myTurn=S.order[S.turnIdx]==pid&&!S.winner;if(!myTurn)return;
+ if(data.action=='play')playCardFor(pid,data.i,data.col);else if(data.action=='draw')drawFor(pid);broadcastState()}
+function sendOrApply(data){if(isHost)applyAction(myId,data);else myConn.send(Object.assign({type:'action'},data))}
+function oclk(i){const myTurn=S&&S.order[S.turnIdx]==myId&&!S.winner;if(!myTurn||pend!==null)return;
+ const hand=S.hands[myId],c=hand[i],top=S.pile[S.pile.length-1],el=document.querySelectorAll('#hand .c')[i];
+ if(!okc(c,top,S.color)||(S.drewBy==myId&&i!=hand.length-1)){shake(el);return}
+ if(c.c=='w'){pend=i;renderOnlineP();return}
+ sendOrApply({action:'play',i,col:null})}
+function opick(col){const i=pend;pend=null;sendOrApply({action:'play',i,col})}
+function odeck(){const myTurn=S&&S.order[S.turnIdx]==myId&&!S.winner;if(!myTurn)return;sendOrApply({action:'draw'})}
+function renderOnlineP(){if(!S)return renderLobbyP();const order=S.order,myTurn=order[S.turnIdx]==myId&&!S.winner;
+ const others=players.filter(p=>p.id!=myId),top=S.pile[S.pile.length-1],hands=S.hands;
+ $.innerHTML=`<div class="opp">${others.map(p=>`<div class="o ${order[S.turnIdx]==p.id?'t':''}">${p.name}<br>🂠 ${(hands[p.id]||[]).length}</div>`).join('')}</div>
+ <div class="mid"><div class="row"><div onclick="odeck()">${cd({c:'back',v:'📥'},'back')}</div>${cd(top)}<div class="dot" style="background:${cn[S.color]}"></div></div><div id="msg">${myTurn?(S.drewBy==myId?'Puedes jugar esa última carta o tocar el mazo para pasar':'Tu turno'):(players.find(p=>p.id==order[S.turnIdx])?.name||'...')+' está jugando'}</div></div>
+ <div class="hand ${myTurn?'':'off'}" id="hand">${(hands[myId]||[]).map((c,i)=>cd(c,'',i)).join('')}</div>
+ ${pend!==null?`<div class="ov"><h2>Elige un color</h2><div class="pk">${CO.map(c=>`<div class="dot ${c}" onclick="pick('${c}')"></div>`).join('')}</div></div>`:''}
+ ${S.winner?`<div class="ov"><h1>🎉 Ganó ${players.find(p=>p.id==S.winner)?.name}</h1><button onclick="leaveRoomP()">Salir</button></div>`:''}`}
+
+menu();
+</script></body></html>
